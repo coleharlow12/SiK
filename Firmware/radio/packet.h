@@ -81,4 +81,5 @@ extern void packet_inject(__xdata uint8_t * __pdata buf, __pdata uint8_t len);
 
 // mavlink 1.0 marker
 #define MAVLINK10_STX 254
+#define MAVLINK20_STX 253
 

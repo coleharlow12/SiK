@@ -66,7 +66,7 @@ static __pdata uint8_t mav_max_xmit;
 static bool injected_packet;
 
 // have we seen a mavlink packet?
-bool seen_mavlink;
+uint8_t seen_mavlink;
 
 #define PACKET_RESEND_THRESHOLD 32
 
@@ -74,7 +74,7 @@ bool seen_mavlink;
 // is used to determine if we will inject RADIO status MAVLink
 // messages into the serial stream for ground station and aircraft
 // monitoring of link quality
-static void check_heartbeat(__xdata uint8_t * __pdata buf) __nonbanked
+static void check_response(__xdata uint8_t * __pdata buf) __nonbanked
 {
 	if (buf[0] == MAVLINK10_STX &&
 		buf[1] == 9 && buf[5] == 0) {
@@ -143,7 +143,7 @@ uint8_t mavlink_frame(uint8_t max_xmit, __xdata uint8_t * __pdata buf) __nonbank
 	memcpy(buf, last_sent, last_sent_len);
 	mav_pkt_len = 0;
 
-	check_heartbeat(buf);
+	check_response(buf);
 
 	high_offset = (feature_mavlink_framing == MAVLINK_FRAMING_HIGHPRI) ? extract_hipri(max_xmit) : -1;
 	  
@@ -181,7 +181,7 @@ uint8_t mavlink_frame(uint8_t max_xmit, __xdata uint8_t * __pdata buf) __nonbank
 			serial_read_buf(&last_sent[last_sent_len], c);
 			memcpy(&buf[last_sent_len], &last_sent[last_sent_len], c);
 
-			check_heartbeat(buf+last_sent_len);
+			check_response(buf+last_sent_len);
 		}
 
 		last_sent_len += c;
