@@ -204,9 +204,6 @@ at_timer(void)
 				at_cmd_len = 2;
 				at_cmd_ready = true;
 				break;
-			default:
-				// should never happen, but otherwise harmless
-			}
 		}
 	}
 }
