@@ -63,7 +63,7 @@ static void	clear_status_registers(void);
 #define EX0_SAVE_DISABLE __bit EX0_saved = EX0; EX0 = 0
 #define EX0_RESTORE EX0 = EX0_saved
 
-#define RADIO_RX_INTERRUPTS (EZRADIOPRO_ENRXFFAFULL|EZRADIOPRO_ENPKVALID|EZRADIOPRO_ENCRCERROR)
+#define RADIO_RX_INTERRUPTS (EZRADIOPRO_ENRXFFAFULL|EZRADIOPRO_ENPKVALID|EZRADIOPRO_ENCRCERROR|EZRADIOPRO_IRSSI)
 
 // FIFO thresholds to allow for packets larger than 64 bytes
 #define TX_FIFO_THRESHOLD_LOW 32
@@ -740,7 +740,10 @@ radio_configure(__pdata uint8_t air_rate)
 
 	// disable interrupts
 	register_write(EZRADIOPRO_INTERRUPT_ENABLE_1, 0x00);
-	register_write(EZRADIOPRO_INTERRUPT_ENABLE_2, 0x00);
+	// Enable the read RSSI interrupt
+	register_write(EZRADIOPRO_INTERRUPT_ENABLE_2, 0x08);
+	// Set threshold RSSI for interrupt to be enabled
+	register_write(EZRADIOPRO_RSSI_THRESHOLD, 0X00);
 
 	clear_status_registers();
 
@@ -1205,7 +1208,7 @@ radio_set_diversity(enum DIVERSITY_Enum state)
 ///
 INTERRUPT(Receiver_ISR, INTERRUPT_INT0)
 {
-	__data uint8_t status, status2;
+	__data uint8_t status, status2, CMH_RSSI;
 
 #ifdef DEBUG_PINS_RADIO_TX_RX
   P1 |=  0x02;
@@ -1213,6 +1216,14 @@ INTERRUPT(Receiver_ISR, INTERRUPT_INT0)
   
 	status2 = register_read(EZRADIOPRO_INTERRUPT_STATUS_2);
 	status  = register_read(EZRADIOPRO_INTERRUPT_STATUS_1);
+	
+	//CMH implementation, for use with external antenna switch to support four antenna diversity.
+	if(status2 | 00010000)
+	{
+		CMH_RSSI = register_read(EZRADIOPRO_RECEIVED_SIGNAL_STRENGTH_INDICATOR);
+		writeRSSI_MAVLINK(RADIO_MODEM,RIGHT_ANTENNA,CMH_RSSI);
+	}
+	//End CMH implementations
 
 	if (status & EZRADIOPRO_IRXFFAFULL) {
 		if (RX_FIFO_THRESHOLD_HIGH + (uint16_t)partial_packet_length > MAX_PACKET_LENGTH) {
