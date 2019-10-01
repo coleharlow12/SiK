@@ -1217,13 +1217,15 @@ INTERRUPT(Receiver_ISR, INTERRUPT_INT0)
 	status2 = register_read(EZRADIOPRO_INTERRUPT_STATUS_2);
 	status  = register_read(EZRADIOPRO_INTERRUPT_STATUS_1);
 	
-	//CMH implementation, for use with external antenna switch to support four antenna diversity.
-	if(status2 | 00010000)
+        #ifdef BOARD_rfd900p
+	//CMH implementation, for use with external antenna switch to support four antenna 
+        if(status2 | 00010000)
 	{
 		CMH_RSSI = register_read(EZRADIOPRO_RECEIVED_SIGNAL_STRENGTH_INDICATOR);
 		writeRSSI_MAVLINK(RADIO_MODEM,RIGHT_ANTENNA,CMH_RSSI);
 	}
 	//End CMH implementations
+        #endif
 
 	if (status & EZRADIOPRO_IRXFFAFULL) {
 		if (RX_FIFO_THRESHOLD_HIGH + (uint16_t)partial_packet_length > MAX_PACKET_LENGTH) {
