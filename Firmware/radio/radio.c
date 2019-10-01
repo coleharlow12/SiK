@@ -35,6 +35,7 @@
 #include "golay.h"
 #include "crc.h"
 #include "pins_user.h"
+#include "MAV_RSSI.h"
 
 __xdata uint8_t radio_buffer[MAX_PACKET_LENGTH];
 __pdata uint8_t receive_packet_length;
@@ -1208,7 +1209,12 @@ radio_set_diversity(enum DIVERSITY_Enum state)
 ///
 INTERRUPT(Receiver_ISR, INTERRUPT_INT0)
 {
-	__data uint8_t status, status2, CMH_RSSI;
+	__data uint8_t status, status2;
+	
+//Required for variables that are used with four antenna diversity
+#ifdef BOARD_rfd900p
+__data uint8_t CMH_RSSI;
+#endif		
 
 #ifdef DEBUG_PINS_RADIO_TX_RX
   P1 |=  0x02;
