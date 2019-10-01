@@ -80,6 +80,21 @@ pins_user_init(void)
 		pins_user_set_value(i, pin_values[i].pin_dir);
 	}
 	
+	pins_user_set_io(0,PIN_OUTPUT);
+	pins_user_set_value(0,PIN_HIGH);
+
+	pins_user_set_io(1,PIN_OUTPUT);
+	pins_user_set_value(1,PIN_LOW);
+
+	pins_user_set_io(2,PIN_OUTPUT);
+	pins_user_set_value(2,PIN_LOW);
+
+	pins_user_set_io(3,PIN_OUTPUT);
+	pins_user_set_value(3,PIN_LOW);
+
+	pins_user_set_io(4,PIN_OUTPUT);
+	pins_user_set_value(4,PIN_LOW);
+	
 // Client Application Hack
 //	pins_user_set_value(3,PIN_HIGH);
 }
