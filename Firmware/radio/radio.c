@@ -64,7 +64,9 @@ static void	clear_status_registers(void);
 #define EX0_SAVE_DISABLE __bit EX0_saved = EX0; EX0 = 0
 #define EX0_RESTORE EX0 = EX0_saved
 
-#define RADIO_RX_INTERRUPTS (EZRADIOPRO_ENRXFFAFULL|EZRADIOPRO_ENPKVALID|EZRADIOPRO_ENCRCERROR|EZRADIOPRO_IRSSI)
+//Used to enable interrupts in the radio_receiver_on function
+#define RADIO_RX_INTERRUPTS (EZRADIOPRO_ENRXFFAFULL|EZRADIOPRO_ENPKVALID|EZRADIOPRO_ENCRCERROR)
+#define REGISTER_TWO_INTERRUPTS (EZRADIOPRO_ENPREAVAL|EZRADIOPRO_IRSSI)
 
 // FIFO thresholds to allow for packets larger than 64 bytes
 #define TX_FIFO_THRESHOLD_LOW 32
@@ -541,9 +543,9 @@ radio_receiver_on(void)
 	preamble_detected = 0;
 	partial_packet_length = 0;
 
-	// enable receive interrupts
+	// enable receive interrupts and rssi interrupt (IRSSI).
 	register_write(EZRADIOPRO_INTERRUPT_ENABLE_1, RADIO_RX_INTERRUPTS);
-	register_write(EZRADIOPRO_INTERRUPT_ENABLE_2, EZRADIOPRO_ENPREAVAL);
+	register_write(EZRADIOPRO_INTERRUPT_ENABLE_2, REGISTER_TWO_INTERRUPTS);
 
 	clear_status_registers();
 	radio_clear_transmit_fifo();
@@ -739,12 +741,12 @@ radio_configure(__pdata uint8_t air_rate)
 {
 	__pdata uint8_t i, rate_selection, control;
 
-	// disable interrupts
+	// disable interrupts for the duration of the configuration. The interrupts are turned on in the funcitons
+	// Radio_receiver_on()
 	register_write(EZRADIOPRO_INTERRUPT_ENABLE_1, 0x00);
-	// Enable the read RSSI interrupt
-	register_write(EZRADIOPRO_INTERRUPT_ENABLE_2, 0x08);
+	register_write(EZRADIOPRO_INTERRUPT_ENABLE_2, 0x00);
 	// Set threshold RSSI for interrupt to be enabled
-	register_write(EZRADIOPRO_RSSI_THRESHOLD, 0X00);
+	register_write(EZRADIOPRO_RSSI_THRESHOLD, 0X20);
 
 	clear_status_registers();
 
@@ -1224,8 +1226,10 @@ __data uint8_t CMH_RSSI;
 	status  = register_read(EZRADIOPRO_INTERRUPT_STATUS_1);
 	
         #ifdef BOARD_rfd900p
+	
 	//CMH implementation, for use with external antenna switch to support four antenna 
-        if(status2 | 00010000)
+	//The if essentially checks if the bit controlled by IRSSI is set in status 2. If it is read the RSSI value
+        if(status2 & EZRADIOPRO_IRSSI)
 	{
 		CMH_RSSI = register_read(EZRADIOPRO_RECEIVED_SIGNAL_STRENGTH_INDICATOR);
 		writeRSSI_MAVLINK(RADIO_MODEM,RIGHT_ANTENNA,CMH_RSSI);
