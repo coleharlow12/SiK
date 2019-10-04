@@ -66,7 +66,11 @@ static void	clear_status_registers(void);
 
 //Used to enable interrupts in the radio_receiver_on function
 #define RADIO_RX_INTERRUPTS (EZRADIOPRO_ENRXFFAFULL|EZRADIOPRO_ENPKVALID|EZRADIOPRO_ENCRCERROR)
-#define REGISTER_TWO_INTERRUPTS (EZRADIOPRO_ENPREAVAL|EZRADIOPRO_IRSSI)
+//IRSSI is triggered when thereis a measured RSSI greater than the value in EZRADIOPRO_RSSI_THRESHOLD
+//Sync Word detected is triggered when a a sync word is detected
+//PREAVAL is triggered whene a preamble is available. 
+#define REGISTER_TWO_INTERRUPTS (EZRADIOPRO_ENPREAVAL|EZRADIOPRO_IRSSI|EZRADIOPRO_ENSWDET)
+
 
 // FIFO thresholds to allow for packets larger than 64 bytes
 #define TX_FIFO_THRESHOLD_LOW 32
@@ -1190,6 +1194,8 @@ radio_set_diversity(enum DIVERSITY_Enum state)
       break;
       
     case DIVERSITY_DISABLED:
+  	//This is mean to be empty
+  	break;
     case DIVERSITY_ANT1:
     default:
       // see table 23.8, page 279
@@ -1229,7 +1235,8 @@ __data uint8_t CMH_RSSI;
 	
 	//CMH implementation, for use with external antenna switch to support four antenna 
 	//The if essentially checks if the bit controlled by IRSSI is set in status 2. If it is read the RSSI value
-        if(status2 & EZRADIOPRO_IRSSI)
+	//The RSSI is read whenever the Sync word is detected.
+        if(status2 & EZRADIOPRO_ISWDET)
 	{
 		CMH_RSSI = register_read(EZRADIOPRO_RECEIVED_SIGNAL_STRENGTH_INDICATOR);
 		writeRSSI_MAVLINK(RADIO_MODEM,RIGHT_ANTENNA,CMH_RSSI);
