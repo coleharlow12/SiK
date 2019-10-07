@@ -36,6 +36,7 @@
 #include "crc.h"
 #include "pins_user.h"
 #include "MAV_RSSI.h"
+#include "Serial.h"
 
 __xdata uint8_t radio_buffer[MAX_PACKET_LENGTH];
 __pdata uint8_t receive_packet_length;
@@ -64,13 +65,8 @@ static void	clear_status_registers(void);
 #define EX0_SAVE_DISABLE __bit EX0_saved = EX0; EX0 = 0
 #define EX0_RESTORE EX0 = EX0_saved
 
-//Used to enable interrupts in the radio_receiver_on function
 #define RADIO_RX_INTERRUPTS (EZRADIOPRO_ENRXFFAFULL|EZRADIOPRO_ENPKVALID|EZRADIOPRO_ENCRCERROR)
-//IRSSI is triggered when thereis a measured RSSI greater than the value in EZRADIOPRO_RSSI_THRESHOLD
-//Sync Word detected is triggered when a a sync word is detected
-//PREAVAL is triggered whene a preamble is available. 
-#define REGISTER_TWO_INTERRUPTS (EZRADIOPRO_ENPREAVAL|EZRADIOPRO_IRSSI|EZRADIOPRO_ENSWDET)
-
+#define REGISTER_TWO_INTERRUPTS (EZRADIOPRO_ENPREAVAL|EZRADIOPRO_ENSWDET)
 
 // FIFO thresholds to allow for packets larger than 64 bytes
 #define TX_FIFO_THRESHOLD_LOW 32
@@ -89,6 +85,7 @@ radio_receive_packet(uint8_t *length, __xdata uint8_t * __pdata buf)
 	__data uint16_t crc1, crc2;
 	__data uint8_t errcount = 0;
 	__data uint8_t elen;
+
 #endif
 
 	if (!packet_received) {
@@ -547,7 +544,7 @@ radio_receiver_on(void)
 	preamble_detected = 0;
 	partial_packet_length = 0;
 
-	// enable receive interrupts and rssi interrupt (IRSSI).
+	// enable receive interrupts and RSSI interrupts
 	register_write(EZRADIOPRO_INTERRUPT_ENABLE_1, RADIO_RX_INTERRUPTS);
 	register_write(EZRADIOPRO_INTERRUPT_ENABLE_2, REGISTER_TWO_INTERRUPTS);
 
@@ -745,12 +742,9 @@ radio_configure(__pdata uint8_t air_rate)
 {
 	__pdata uint8_t i, rate_selection, control;
 
-	// disable interrupts for the duration of the configuration. The interrupts are turned on in the funcitons
-	// Radio_receiver_on()
+	// disable interrupts so that radio can be configured uninterrupted
 	register_write(EZRADIOPRO_INTERRUPT_ENABLE_1, 0x00);
 	register_write(EZRADIOPRO_INTERRUPT_ENABLE_2, 0x00);
-	// Set threshold RSSI for interrupt to be enabled
-	register_write(EZRADIOPRO_RSSI_THRESHOLD, 0X20);
 
 	clear_status_registers();
 
@@ -1097,6 +1091,7 @@ software_reset(void)
 	register_write(EZRADIOPRO_INTERRUPT_ENABLE_1, 0);
 	register_write(EZRADIOPRO_INTERRUPT_ENABLE_2, EZRADIOPRO_ENCHIPRDY);
 
+
 	delay_set(20);
 	while (!delay_expired()) {
 		status = register_read(EZRADIOPRO_INTERRUPT_STATUS_1);
@@ -1182,20 +1177,20 @@ radio_set_diversity(enum DIVERSITY_Enum state)
     case DIVERSITY_ENABLED:
       register_write(EZRADIOPRO_GPIO2_CONFIGURATION, 0x18);
       // see table 23.8, page 279
+      //0x80 is 0100 0000 which sets the EZRADIOPRO into non-diversity mode
       register_write(EZRADIOPRO_OPERATING_AND_FUNCTION_CONTROL_2, (register_read(EZRADIOPRO_OPERATING_AND_FUNCTION_CONTROL_2) & ~EZRADIOPRO_ANTDIV_MASK) | 0x80);
       break;
       
     case DIVERSITY_ANT2:
       // see table 23.8, page 279
       register_write(EZRADIOPRO_OPERATING_AND_FUNCTION_CONTROL_2, (register_read(EZRADIOPRO_OPERATING_AND_FUNCTION_CONTROL_2) & ~EZRADIOPRO_ANTDIV_MASK) | 0x20);
-      
       register_write(EZRADIOPRO_GPIO2_CONFIGURATION, 0x0A);	// GPIO2 output set high fixed
-      register_write(EZRADIOPRO_IO_PORT_CONFIGURATION, 0x00);	// GPIO2 output set low (fixed on ant 2)
+      register_write(EZRADIOPRO_IO_PORT_CONFIGURATION, 0x00);	// GPIO2 output set low if GPIO2 is configured for direct input/output(fixed on ant 2)
       break;
       
     case DIVERSITY_DISABLED:
-  	//This is mean to be empty
-  	break;
+    	//This is meant to be empty I have tried changing GPIO Values and had no luck
+
     case DIVERSITY_ANT1:
     default:
       // see table 23.8, page 279
@@ -1207,7 +1202,7 @@ radio_set_diversity(enum DIVERSITY_Enum state)
   }
 }
 
-/// the receiver interrupt
+/// the receiver interrupt service routine. 
 ///
 /// We expect to get the following types of interrupt:
 ///
@@ -1218,11 +1213,16 @@ radio_set_diversity(enum DIVERSITY_Enum state)
 INTERRUPT(Receiver_ISR, INTERRUPT_INT0)
 {
 	__data uint8_t status, status2;
-	
-//Required for variables that are used with four antenna diversity
-#ifdef BOARD_rfd900p
-__data uint8_t CMH_RSSI;
-#endif		
+
+#ifdef BOARD_rfd900pa	
+	__data uint8_t CMH_RSSI;
+	__data static volatile uint8_t ON_OR_OFF = 0;
+	__data static volatile uint8_t counter = 0;
+#endif
+
+//#ifdef BOARD_rfd900p
+
+//#endif		
 
 #ifdef DEBUG_PINS_RADIO_TX_RX
   P1 |=  0x02;
@@ -1230,19 +1230,6 @@ __data uint8_t CMH_RSSI;
   
 	status2 = register_read(EZRADIOPRO_INTERRUPT_STATUS_2);
 	status  = register_read(EZRADIOPRO_INTERRUPT_STATUS_1);
-	
-        #ifdef BOARD_rfd900p
-	
-	//CMH implementation, for use with external antenna switch to support four antenna 
-	//The if essentially checks if the bit controlled by IRSSI is set in status 2. If it is read the RSSI value
-	//The RSSI is read whenever the Sync word is detected.
-        if(status2 & EZRADIOPRO_ISWDET)
-	{
-		CMH_RSSI = register_read(EZRADIOPRO_RECEIVED_SIGNAL_STRENGTH_INDICATOR);
-		writeRSSI_MAVLINK(RADIO_MODEM,RIGHT_ANTENNA,CMH_RSSI);
-	}
-	//End CMH implementations
-        #endif
 
 	if (status & EZRADIOPRO_IRXFFAFULL) {
 		if (RX_FIFO_THRESHOLD_HIGH + (uint16_t)partial_packet_length > MAX_PACKET_LENGTH) {
@@ -1254,18 +1241,76 @@ __data uint8_t CMH_RSSI;
 		last_rssi = register_read(EZRADIOPRO_RECEIVED_SIGNAL_STRENGTH_INDICATOR);
 	}
 
+	//Goes high when a valid PREAMBLE has been detected.
 	if (status2 & EZRADIOPRO_IPREAVAL) {
 		// a valid preamble has been detected
 		preamble_detected = true;
 
 		// read the RSSI register for logging
 		last_rssi = register_read(EZRADIOPRO_RECEIVED_SIGNAL_STRENGTH_INDICATOR);
+
+		#ifdef BOARD_rfd900p
+		//Enables the RSSI interrupts so that the RSSI can be read for each of the antennas. 
+		register_write(EZRADIOPRO_INTERRUPT_STATUS_2, REGISTER_TWO_INTERRUPTS|EZRADIOPRO_ENRSSI);
+		#endif
 	}
+
+#ifdef BOARD_rfd900pa
+	//Once the sync word of the message has been detected we no longer want to switch the antenna so we need to turn off the RSSI interrupts
+	if (status2 & EZRADIOPRO_ISWDET) {
+		register_write(EZRADIOPRO_INTERRUPT_STATUS_2, REGISTER_TWO_INTERRUPTS);
+		serial_write(0x00);
+		serial_write(0x00);
+		serial_write(0x00);
+	}
+
+	//Used to read the values of the RSSI during the message preamble using the IRSSI interrupt
+	if (status2 & EZRADIOPRO_IRSSI) {
+		//Reads the RSSI value
+		CMH_RSSI = register_read(EZRADIOPRO_RECEIVED_SIGNAL_STRENGTH_INDICATOR);
+		//Prints the RSSI Value
+		serial_write(CMH_RSSI);
+		//Sets the PINOUTPUT to high
+		if(ON_OR_OFF)
+		{
+			pins_user_set_value(0,PIN_HIGH);
+			pins_user_set_value(1,PIN_HIGH);
+			pins_user_set_value(2,PIN_HIGH);
+			pins_user_set_value(3,PIN_HIGH);
+			serial_write(0xFE);
+			serial_write(0xFE);
+		}
+		else
+		{
+			pins_user_set_value(0,PIN_LOW);
+			pins_user_set_value(1,PIN_LOW);
+			pins_user_set_value(2,PIN_LOW);
+			pins_user_set_value(3,PIN_LOW);
+			serial_write(0x22);
+			serial_write(0x22);
+		}
+		counter++;
+	}
+	
+	if (counter == 50)
+	{
+		counter = 0;
+		if(ON_OR_OFF)
+		{
+			ON_OR_OFF = 0;
+		}
+		else
+		{
+			ON_OR_OFF = 1;
+		}
+	}
+#endif
 
 	if (feature_golay == false && (status & EZRADIOPRO_ICRCERROR)) {
 		goto rxfail;
 	}
 
+	//True if we have detected a valid packet has been received
 	if (status & EZRADIOPRO_IPKVALID) {
 		__data uint8_t len = register_read(EZRADIOPRO_RECEIVED_PACKET_LENGTH);
 		if (len > MAX_PACKET_LENGTH || partial_packet_length > len) {
@@ -1301,4 +1346,3 @@ rxfail:
   P1 &= ~0x02;
 #endif // DEBUG_PINS_RADIO_TX_RX
 }
-
