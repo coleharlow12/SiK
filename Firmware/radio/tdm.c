@@ -96,7 +96,7 @@ __pdata static uint16_t ticks_per_byte;
 
 /// number of 16usec ticks to wait for a preamble to turn into a packet
 /// This is set when we get a preamble interrupt, and causes us to delay
-/// sending for a maximum packet latency. This is used to make it more likely
+/// sending for a maximum time of packet latency. This is used to make it more likely
 /// that two radios that happen to be exactly in sync in their sends
 /// will eventually get a packet through and get their transmit windows
 /// sorted out
@@ -140,9 +140,9 @@ static __bit send_statistics;
 extern uint8_t seen_mavlink;
 
 struct tdm_trailer {
-	uint16_t window:13;
-	uint16_t command:1;
-	uint16_t bonus:1;
+	uint16_t window:13; // Number of 16usec tics left in this tdm state after message is transmitted
+	uint16_t command:1; //
+	uint16_t bonus:1; // Set to 
 	uint16_t resend:1;
 #ifdef INCLUDE_AES
 	uint16_t crc;
@@ -739,6 +739,7 @@ tdm_serial_loop(void)
 #endif
     
     // ask the packet system for the next packet to send
+    // Handles AT commands
     if (send_at_command && 
             max_xmit >= strlen(remote_at_cmd)) {
       // send a remote AT command
@@ -746,14 +747,20 @@ tdm_serial_loop(void)
       memcpy(pbuf, remote_at_cmd, len);
       trailer.command = 1;
       send_at_command = false;
-    } else {
+    } 
+    // Handles non AT command packets
+    else {
+
       // get a packet from the serial port
+      // returns 0 if there are no packets available
       len = packet_get_next(max_xmit, pbuf);
 
       if (len > 0) {
-         trailer.command = packet_is_injected();
+        // Sets to 1 if the packet is injected and 0 otherwise
+        trailer.command = packet_is_injected();
       } else {
-         trailer.command = 0;
+        // When the packet is empty the packet is not injected
+        trailer.command = 0;
       }
 #ifdef INCLUDE_AES
       trailer.crc = crc16(len, pbuf);
@@ -764,22 +771,24 @@ tdm_serial_loop(void)
       panic("oversized tdm packet");
     }
     
-    trailer.bonus = (tdm_state == TDM_RECEIVE);
-    trailer.resend = packet_is_resend();
+    trailer.bonus = (tdm_state == TDM_RECEIVE); // 
+    trailer.resend = packet_is_resend(); // Returns 1 if the packet is a resend and 0 otherwise
     
+    // Sends noise/signal strength statistics if given the chance
     if (tdm_state == TDM_TRANSMIT &&
             len == 0 &&
             send_statistics &&
             max_xmit >= sizeof(statistics)) {
       // send a statistics packet
-      send_statistics = 0;
-      memcpy(pbuf, &statistics, sizeof(statistics));
-      len = sizeof(statistics);
+      send_statistics = 0; // Makes it so next packet doesn't send statistics
+      memcpy(pbuf, &statistics, sizeof(statistics)); // Copys statistics into the buffer
+      len = sizeof(statistics); // Adjusts length to be the size of the statistics
       
       // mark a stats packet with a zero window
       trailer.window = 0;
       trailer.resend = 0;
-    } else {
+    } 
+    else {
       // calculate the control word as the number of
       // 16usec ticks that will be left in this
       // tdm state after this packet is transmitted
@@ -799,7 +808,7 @@ tdm_serial_loop(void)
     // set right transmit channel
     radio_set_channel(fhop_transmit_channel());
     
-    memcpy(&pbuf[len], &trailer, sizeof(trailer));
+    memcpy(&pbuf[len], &trailer, sizeof(trailer)); // Copies the trailer to pbuf
     
     if (len != 0 && trailer.window != 0) {
       // show the user that we're sending real data
@@ -827,6 +836,7 @@ tdm_serial_loop(void)
     // start transmitting the packet
     if (!radio_transmit(len + sizeof(trailer), pbuf, tdm_state_remaining + (silence_period/2)) &&
         len != 0 && trailer.window != 0 && trailer.command == 0) {
+      // If transmission fails then we try to force a resend only if the packet included data
       packet_force_resend();
     }
     
@@ -855,7 +865,6 @@ tdm_serial_loop(void)
        }
     }
 #endif // INCLUDE_AES
-
 
     // set right receive channel
     radio_set_channel(fhop_receive_channel());

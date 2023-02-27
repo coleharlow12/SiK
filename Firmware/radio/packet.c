@@ -204,6 +204,7 @@ packet_get_next(register uint8_t max_xmit, __xdata uint8_t *buf)
   }
 #endif // INCLUDE_AES
   
+  // HANDLES INJECTED PACKET 
 	if (injected_packet) {
 		// send a previously injected packet
 		slen = last_sent_len;
@@ -223,7 +224,7 @@ packet_get_next(register uint8_t max_xmit, __xdata uint8_t *buf)
 			last_sent_is_injected = true;
 			return slen;
 		}
-		// send the rest
+		// send the rest ( This code only runs if max_xmit < slen)
 		injected_packet = false;
 		last_sent_is_injected = true;
 		return encryptReturn(buf, last_sent, last_sent_len);
@@ -251,11 +252,13 @@ packet_get_next(register uint8_t max_xmit, __xdata uint8_t *buf)
 
 	last_sent_len = 0;
 
+
+	// HANDLES CASE WHEN THERE IS NOTHING TO SEND
 	if (slen == 0) {
-		// nothing available to send
 		return 0;
 	}
 
+	// HANDLE CASE WHEN MAVLINK FRAMING IS NOT ENABLED
 	if (!feature_mavlink_framing) {
 		// simple framing
 		if (slen > 0 && serial_read_buf(buf, slen)) {
@@ -265,8 +268,7 @@ packet_get_next(register uint8_t max_xmit, __xdata uint8_t *buf)
     return 0;
 	}
 
-	// try to align packet boundaries with MAVLink packets
-
+	// HANDLES CASE WHEN MAVLINK FRMAING IS ENABLED
 	if (mav_pkt_len == 1) {
 		// we're waiting for the MAVLink length byte
 		if (slen == 1) {
@@ -304,7 +306,7 @@ packet_get_next(register uint8_t max_xmit, __xdata uint8_t *buf)
 		return mavlink_frame(max_xmit, buf);
 	}
 
-		// We are now looking for a new packet (mav_pkt_len == 0)
+	// We are now looking for a new packet (mav_pkt_len == 0)
 	while (slen > 0) {
 		register uint8_t c = serial_peekx(0);
 		if (c == MAVLINK10_STX || c == MAVLINK20_STX) {
@@ -367,6 +369,7 @@ packet_get_next(register uint8_t max_xmit, __xdata uint8_t *buf)
 	}
 	return encryptReturn(buf, last_sent, last_sent_len);
 }
+
 
 // return true if the packet currently being sent
 // is a resend
